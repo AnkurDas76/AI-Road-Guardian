@@ -21,6 +21,10 @@ export const ENDPOINTS = {
   USERS: '/users',
   POLICE: '/police',
   HEALTH: '/health',
+  HAZARDS_NEARBY: '/api/hazards/nearby',
+  HAZARDS_CROWDSOURCE: '/api/hazards/crowdsource',
+  HAZARDS_CONSTRUCTION_REGISTER: '/api/hazards/construction/register',
+  HAZARDS_CONSTRUCTION_WITHDRAW: '/api/hazards/construction/withdraw',
 };
 
 export interface AlertItem {
@@ -64,6 +68,38 @@ export interface AlertResponse {
   nearby_police?: PoliceStationItem[];
   error?: string;
   status?: string;
+}
+
+export interface HazardItem {
+  id: string;
+  latitude: number;
+  longitude: number;
+  h3_index?: string;
+  type: 'pothole' | 'speed_breaker' | 'construction' | 'accident' | 'blocked_road' | 'danger_zone' | string;
+  initial_severity?: 'minor' | 'severe' | string;
+  reporter_type?: string;
+  is_lit?: boolean | number;
+  active?: boolean | number;
+  created_at?: string;
+  calculated_stage?: number;
+  frontend_action?: 'FORCE_ALARM' | 'SPEED_GATED_ALARM' | 'IGNORE' | string;
+  distance_km?: number;
+  company_name?: string;
+}
+
+export interface CrowdsourceHazardPayload {
+  latitude: number;
+  longitude: number;
+  type: string;
+  initial_severity?: 'minor' | 'severe';
+  is_lit?: boolean;
+}
+
+export interface ConstructionWorkPayload {
+  latitude: number;
+  longitude: number;
+  company_name: string;
+  is_lit?: boolean;
 }
 
 export const fetchHistory = async (): Promise<AlertItem[]> => {
@@ -125,5 +161,70 @@ export const triggerManualAlertApi = async (driverId: string, lat: number, lon: 
   } catch (error) {
     console.error('Error triggering manual alert:', error);
     return { success: false, error: String(error) };
+  }
+};
+
+export const fetchNearbyHazardsApi = async (
+  latitude: number,
+  longitude: number,
+  isFirstTimer = true,
+  currentHour?: number
+): Promise<{ context: any; hazards: HazardItem[] }> => {
+  try {
+    let url = `${getApiBaseUrl()}/api/hazards/nearby?latitude=${latitude}&longitude=${longitude}&is_first_timer=${isFirstTimer}`;
+    if (currentHour !== undefined) {
+      url += `&current_hour=${currentHour}`;
+    }
+    const res = await fetch(url);
+    const json = await res.json();
+    return {
+      context: json.context || {},
+      hazards: json.hazards || [],
+    };
+  } catch (error) {
+    console.error('Error fetching nearby hazards:', error);
+    return { context: {}, hazards: [] };
+  }
+};
+
+export const reportHazardApi = async (payload: CrowdsourceHazardPayload) => {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/hazards/crowdsource`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('Error reporting hazard:', error);
+    return { status: 'error', error: String(error) };
+  }
+};
+
+export const registerConstructionApi = async (payload: ConstructionWorkPayload) => {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/hazards/construction/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('Error registering construction:', error);
+    return { status: 'error', error: String(error) };
+  }
+};
+
+export const withdrawConstructionApi = async (hazardId: string) => {
+  try {
+    const res = await fetch(`${getApiBaseUrl()}/api/hazards/construction/withdraw`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hazard_id: hazardId }),
+    });
+    return await res.json();
+  } catch (error) {
+    console.error('Error withdrawing construction:', error);
+    return { status: 'error', error: String(error) };
   }
 };

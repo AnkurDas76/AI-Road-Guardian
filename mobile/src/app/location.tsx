@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -6,20 +6,91 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-  Alert,
   TextInput,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { updateLocationApi, getApiBaseUrl } from '../api/config';
+import * as Speech from 'expo-speech';
+import { updateLocationApi, fetchNearbyHazardsApi, HazardItem } from '../api/config';
 
 export default function LocationScreen() {
   const [userId, setUserId] = useState('user_1');
   const [lat, setLat] = useState('22.5730');
   const [lon, setLon] = useState('88.3641');
+  const [speedKmH, setSpeedKmH] = useState<number>(40);
+  const [headingDeg, setHeadingDeg] = useState<number>(90); // 90° East
   const [isSyncActive, setIsSyncActive] = useState(true);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(true);
+  const [isSimulationActive, setIsSimulationActive] = useState(false);
+
   const [lastSyncTime, setLastSyncTime] = useState<string>('Never');
   const [syncCount, setSyncCount] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>('Ready');
+  const [detectedHazards, setDetectedHazards] = useState<HazardItem[]>([]);
+  const [activeAlertText, setActiveAlertText] = useState<string | null>(null);
+
+  const lastSpokenHazardRef = useRef<string | null>(null);
+
+  // Dynamic Warning Buffer (meters) based on speed
+  const warningBufferMeters = Math.max(30, Math.round(speedKmH * 3.5));
+
+  // Calculate bearing from (lat1, lon1) to (lat2, lon2) in degrees (0-360)
+  const calculateBearing = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const toDeg = (rad: number) => (rad * 180) / Math.PI;
+
+    const phi1 = toRad(lat1);
+    const phi2 = toRad(lat2);
+    const deltaLambda = toRad(lon2 - lon1);
+
+    const y = Math.sin(deltaLambda) * Math.cos(phi2);
+    const x =
+      Math.cos(phi1) * Math.sin(phi2) -
+      Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+
+    const brng = toDeg(Math.atan2(y, x));
+    return (brng + 360) % 360;
+  };
+
+  // Directional Flashlight Cone Math (±30° tolerance angle)
+  const isHazardInDirectionCone = (
+    userLat: number,
+    userLon: number,
+    userHeading: number,
+    hazardLat: number,
+    hazardLon: number
+  ) => {
+    const bearingToHazard = calculateBearing(userLat, userLon, hazardLat, hazardLon);
+    const diff = Math.abs(((bearingToHazard - userHeading + 540) % 360) - 180);
+    return diff <= 30; // within 30 degree cone ahead
+  };
+
+  const evaluateProximityEngine = async (parsedLat: number, parsedLon: number) => {
+    try {
+      const res = await fetchNearbyHazardsApi(parsedLat, parsedLon, true);
+      const hazards = res.hazards || [];
+      setDetectedHazards(hazards);
+
+      for (const h of hazards) {
+        const inCone = isHazardInDirectionCone(parsedLat, parsedLon, headingDeg, h.latitude, h.longitude);
+        const distKm = h.distance_km || 0.05;
+        const distMeters = distKm * 1000;
+
+        if (inCone && distMeters <= warningBufferMeters) {
+          const alertMsg = `Warning! ${h.type.replace('_', ' ')} ahead in ${Math.round(distMeters)} meters!`;
+          setActiveAlertText(alertMsg);
+
+          if (isVoiceEnabled && lastSpokenHazardRef.current !== h.id) {
+            lastSpokenHazardRef.current = h.id;
+            Speech.speak(alertMsg, { rate: 1.0, pitch: 1.0 });
+          }
+          break;
+        }
+      }
+    } catch (e) {
+      console.warn('Proximity evaluation error:', e);
+    }
+  };
 
   const sendLocationUpdate = async () => {
     const parsedLat = parseFloat(lat);
@@ -36,45 +107,49 @@ export default function LocationScreen() {
       setLastSyncTime(now);
       setSyncCount((prev) => prev + 1);
       setStatusMessage(`Synced at ${now}`);
+      await evaluateProximityEngine(parsedLat, parsedLon);
     } else {
       setStatusMessage(`Failed: ${res.error || 'Network error'}`);
     }
   };
 
+  // Simulation Route Walk / Drive loop
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let simInterval: any;
+    if (isSimulationActive) {
+      simInterval = setInterval(() => {
+        setLat((prevLat) => (parseFloat(prevLat) + 0.0001).toFixed(4));
+        setLon((prevLon) => (parseFloat(prevLon) + 0.0001).toFixed(4));
+      }, 2000);
+    }
+    return () => {
+      if (simInterval) clearInterval(simInterval);
+    };
+  }, [isSimulationActive]);
+
+  useEffect(() => {
+    let interval: any;
     if (isSyncActive) {
-      sendLocationUpdate(); // initial update
+      sendLocationUpdate();
       interval = setInterval(() => {
         sendLocationUpdate();
-      }, 5000); // Send location update every 5 seconds as specified
+      }, 5000);
     }
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [isSyncActive, lat, lon, userId]);
-
-  // Quick Preset Location buttons to easily test 300m radius
-  const setKolkataNear = () => {
-    setLat('22.5730');
-    setLon('88.3641');
-  };
-
-  const setKolkataFar = () => {
-    setLat('22.6000');
-    setLon('88.4000');
-  };
+  }, [isSyncActive, lat, lon, speedKmH, headingDeg, userId]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Header Info */}
       <View style={styles.headerCard}>
         <View style={styles.iconRow}>
-          <Ionicons name="navigate-circle-outline" size={32} color="#34d399" />
-          <Text style={styles.headerTitle}>Periodic Location Service</Text>
+          <Ionicons name="speedometer" size={32} color="#38bdf8" />
+          <Text style={styles.headerTitle}>Live Proximity & Voice Warning Engine</Text>
         </View>
         <Text style={styles.headerDescription}>
-          Continuously sends your GPS coordinates to the backend every 5 seconds via POST /update_location so nearby drowsiness alerts (&lt;300m) reach you immediately.
+          Combines dynamic speed-gated warning buffers with directional cone math (±30°) and Expo Text-To-Speech.
         </Text>
 
         <View style={styles.switchRow}>
@@ -86,19 +161,77 @@ export default function LocationScreen() {
             thumbColor={isSyncActive ? '#34d399' : '#94a3b8'}
           />
         </View>
+
+        <View style={[styles.switchRow, { marginTop: 8 }]}>
+          <Text style={styles.switchLabel}>Voice Alerts (TTS)</Text>
+          <Switch
+            value={isVoiceEnabled}
+            onValueChange={setIsVoiceEnabled}
+            trackColor={{ false: '#475569', true: '#38bdf8' }}
+            thumbColor={isVoiceEnabled ? '#38bdf8' : '#94a3b8'}
+          />
+        </View>
       </View>
 
-      {/* Coordinate Config & Simulation */}
+      {/* Active Voice Warning Banner */}
+      {activeAlertText && (
+        <View style={styles.alertBanner}>
+          <Ionicons name="volume-high" size={24} color="#ffffff" style={{ marginRight: 10 }} />
+          <Text style={styles.alertBannerText}>{activeAlertText}</Text>
+        </View>
+      )}
+
+      {/* Speedometer & Dynamic Buffer Display */}
+      <View style={styles.speedCard}>
+        <Text style={styles.cardTitle}>Rider Telemetry & Dynamic Buffer</Text>
+
+        <View style={styles.telemetryRow}>
+          <View style={styles.telemetryBox}>
+            <Text style={styles.telemetryVal}>{speedKmH} <Text style={{ fontSize: 14 }}>km/h</Text></Text>
+            <Text style={styles.telemetryLabel}>Current Speed</Text>
+          </View>
+
+          <View style={styles.telemetryBox}>
+            <Text style={[styles.telemetryVal, { color: '#f59e0b' }]}>{warningBufferMeters} <Text style={{ fontSize: 14 }}>m</Text></Text>
+            <Text style={styles.telemetryLabel}>Warning Buffer</Text>
+          </View>
+
+          <View style={styles.telemetryBox}>
+            <Text style={[styles.telemetryVal, { color: '#a855f7' }]}>{headingDeg}°</Text>
+            <Text style={styles.telemetryLabel}>Bearing (East)</Text>
+          </View>
+        </View>
+
+        <Text style={styles.inputLabel}>Adjust Speed Simulation (km/h):</Text>
+        <View style={styles.speedBtnRow}>
+          {[20, 40, 60, 80].map((spd) => (
+            <TouchableOpacity
+              key={spd}
+              style={[styles.speedBtn, speedKmH === spd && styles.activeSpeedBtn]}
+              onPress={() => setSpeedKmH(spd)}>
+              <Text style={[styles.speedBtnText, speedKmH === spd && styles.activeSpeedText]}>{spd} km/h</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Device Identity & Coordinate Inputs */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Device Identity & Location</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Text style={styles.cardTitle}>GPS Position & Simulation</Text>
+          <TouchableOpacity
+            style={[styles.simBtn, isSimulationActive && styles.simBtnActive]}
+            onPress={() => setIsSimulationActive(!isSimulationActive)}>
+            <Ionicons name={isSimulationActive ? 'pause' : 'play'} size={14} color="#ffffff" />
+            <Text style={styles.simBtnText}>{isSimulationActive ? 'Pause Auto-Drive' : 'Route Simulation'}</Text>
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.inputLabel}>User ID</Text>
         <TextInput
           style={styles.input}
           value={userId}
           onChangeText={setUserId}
-          placeholder="e.g. user_1"
-          placeholderTextColor="#64748b"
         />
 
         <View style={styles.coordRow}>
@@ -109,8 +242,6 @@ export default function LocationScreen() {
               value={lat}
               onChangeText={setLat}
               keyboardType="numeric"
-              placeholder="22.5730"
-              placeholderTextColor="#64748b"
             />
           </View>
 
@@ -121,26 +252,13 @@ export default function LocationScreen() {
               value={lon}
               onChangeText={setLon}
               keyboardType="numeric"
-              placeholder="88.3641"
-              placeholderTextColor="#64748b"
             />
           </View>
         </View>
 
-        <Text style={styles.presetTitle}>Location Simulation Presets:</Text>
-        <View style={styles.presetRow}>
-          <TouchableOpacity style={styles.presetButton} onPress={setKolkataNear}>
-            <Text style={styles.presetText}>📍 Near Driver (&lt;50m)</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.presetButtonSecondary} onPress={setKolkataFar}>
-            <Text style={styles.presetTextSecondary}>📍 Far Away (&gt;4km)</Text>
-          </TouchableOpacity>
-        </View>
-
         <TouchableOpacity style={styles.manualButton} onPress={sendLocationUpdate}>
           <Ionicons name="refresh" size={18} color="#ffffff" style={{ marginRight: 6 }} />
-          <Text style={styles.manualButtonText}>Sync Now Manually</Text>
+          <Text style={styles.manualButtonText}>Sync Location & Run Engine</Text>
         </TouchableOpacity>
       </View>
 
@@ -188,15 +306,16 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: '#f8fafc',
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 8,
+    flex: 1,
   },
   headerDescription: {
     color: '#94a3b8',
-    fontSize: 13,
+    fontSize: 12,
     lineHeight: 18,
-    marginBottom: 16,
+    marginBottom: 14,
   },
   switchRow: {
     flexDirection: 'row',
@@ -205,14 +324,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#0f172a',
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 8,
   },
   switchLabel: {
-    color: '#34d399',
+    color: '#cbd5e1',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 13,
   },
-  card: {
+  alertBanner: {
+    backgroundColor: '#dc2626',
+    borderRadius: 12,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  alertBannerText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  speedCard: {
     backgroundColor: '#1e293b',
     borderRadius: 16,
     padding: 18,
@@ -226,11 +359,88 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 14,
   },
+  telemetryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  telemetryBox: {
+    backgroundColor: '#0f172a',
+    flex: 1,
+    marginHorizontal: 3,
+    padding: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  telemetryVal: {
+    color: '#38bdf8',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  telemetryLabel: {
+    color: '#94a3b8',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  speedBtnRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  speedBtn: {
+    flex: 1,
+    backgroundColor: '#0f172a',
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 3,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  activeSpeedBtn: {
+    backgroundColor: '#38bdf8',
+    borderColor: '#38bdf8',
+  },
+  speedBtnText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  activeSpeedText: {
+    color: '#0f172a',
+    fontWeight: 'bold',
+  },
+  card: {
+    backgroundColor: '#1e293b',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  simBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#2563eb',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  simBtnActive: {
+    backgroundColor: '#dc2626',
+  },
+  simBtnText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: 'bold',
+    marginLeft: 4,
+  },
   inputLabel: {
     color: '#94a3b8',
     fontSize: 12,
     marginBottom: 4,
     fontWeight: '600',
+    marginTop: 10,
   },
   input: {
     backgroundColor: '#0f172a',
@@ -241,7 +451,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     borderWidth: 1,
     borderColor: '#334155',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   coordRow: {
     flexDirection: 'row',
@@ -250,43 +460,6 @@ const styles = StyleSheet.create({
   coordCol: {
     width: '48%',
   },
-  presetTitle: {
-    color: '#cbd5e1',
-    fontSize: 12,
-    marginBottom: 8,
-    fontWeight: '600',
-  },
-  presetRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  presetButton: {
-    backgroundColor: '#065f46',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    width: '48%',
-    alignItems: 'center',
-  },
-  presetText: {
-    color: '#a7f3d0',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  presetButtonSecondary: {
-    backgroundColor: '#374151',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    width: '48%',
-    alignItems: 'center',
-  },
-  presetTextSecondary: {
-    color: '#d1d5db',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
   manualButton: {
     backgroundColor: '#0284c7',
     borderRadius: 10,
@@ -294,6 +467,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 12,
   },
   manualButtonText: {
     color: '#ffffff',

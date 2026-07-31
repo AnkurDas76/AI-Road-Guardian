@@ -9,19 +9,20 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getApiBaseUrl, triggerManualAlertApi, fetchHistory } from '../api/config';
+import { getApiBaseUrl, triggerManualAlertApi, fetchHistory, fetchNearbyHazardsApi } from '../api/config';
 import { router } from 'expo-router';
 
 export default function DashboardScreen() {
   const [loading, setLoading] = useState(false);
   const [totalAlerts, setTotalAlerts] = useState<number>(0);
+  const [activeHazardsCount, setActiveHazardsCount] = useState<number>(0);
   const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
 
   const checkBackendStatus = async () => {
     try {
       const res = await fetch(`${getApiBaseUrl()}/health`);
       const data = await res.json();
-      setBackendConnected(data.status === 'ONLINE');
+      setBackendConnected(data.status === 'ok' || data.status === 'ONLINE');
     } catch {
       setBackendConnected(false);
     }
@@ -30,6 +31,13 @@ export default function DashboardScreen() {
   const loadStats = async () => {
     const alerts = await fetchHistory();
     setTotalAlerts(alerts.length);
+
+    try {
+      const hazardRes = await fetchNearbyHazardsApi(22.5726, 88.3639, true);
+      setActiveHazardsCount(hazardRes.hazards ? hazardRes.hazards.length : 0);
+    } catch {
+      setActiveHazardsCount(0);
+    }
   };
 
   useEffect(() => {
@@ -44,7 +52,6 @@ export default function DashboardScreen() {
 
   const handleTestEmergencyAlert = async () => {
     setLoading(true);
-    // Trigger alert for driver_1 near Kolkata default coordinates (22.5726, 88.3639)
     const result = await triggerManualAlertApi('driver_1', 22.5726, 88.3639);
     setLoading(false);
 
@@ -92,9 +99,9 @@ export default function DashboardScreen() {
           <Text style={styles.apiUrlText}>{getApiBaseUrl()}</Text>
         </View>
 
-        <Text style={styles.statusTitle}>AI Drowsiness Monitor</Text>
+        <Text style={styles.statusTitle}>AI Driving Safety & MotoSense</Text>
         <Text style={styles.statusSubtitle}>
-          Real-time MediaPipe & OpenCV Python Detection Active
+          Drowsiness Monitor + Context-Aware Road Hazard Warning System
         </Text>
       </View>
 
@@ -135,19 +142,26 @@ export default function DashboardScreen() {
         <View style={styles.statCard}>
           <Ionicons name="alert-circle-outline" size={28} color="#f43f5e" />
           <Text style={styles.statNumber}>{totalAlerts}</Text>
-          <Text style={styles.statLabel}>Alerts Logged</Text>
+          <Text style={styles.statLabel}>Drowsiness Alerts</Text>
         </View>
 
         <View style={styles.statCard}>
-          <Ionicons name="map-outline" size={28} color="#34d399" />
-          <Text style={styles.statNumber}>OSM</Text>
-          <Text style={styles.statLabel}>100% Free Maps</Text>
+          <Ionicons name="warning-outline" size={28} color="#f59e0b" />
+          <Text style={styles.statNumber}>{activeHazardsCount}</Text>
+          <Text style={styles.statLabel}>Road Hazards (H3)</Text>
         </View>
       </View>
 
       {/* Action Navigation */}
       <Text style={styles.sectionTitle}>Quick Actions</Text>
       <View style={styles.actionsRow}>
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={() => router.push('/hazards' as any)}>
+          <Ionicons name="warning" size={32} color="#f59e0b" />
+          <Text style={styles.actionText}>Road Hazards</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.actionCard}
           onPress={() => router.push('/map')}>
@@ -160,13 +174,6 @@ export default function DashboardScreen() {
           onPress={() => router.push('/location')}>
           <Ionicons name="navigate-circle" size={32} color="#34d399" />
           <Text style={styles.actionText}>Live GPS Sync</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionCard}
-          onPress={() => router.push('/history')}>
-          <Ionicons name="time" size={32} color="#f43f5e" />
-          <Text style={styles.actionText}>Alert History</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>

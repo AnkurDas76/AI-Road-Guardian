@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   ActivityIndicator,
-  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { OSMMapView } from '../components/OSMMapView';
@@ -15,6 +14,8 @@ import {
   UserItem,
   PoliceStationItem,
   fetchHistory,
+  fetchNearbyHazardsApi,
+  HazardItem,
   AlertItem,
 } from '../api/config';
 
@@ -42,12 +43,25 @@ export default function MapScreen() {
     { id: 'ps_3', name: 'Park Street Police Station', phone: '033-22262000', lat: 22.5550, lon: 88.3520, distance: 2320 },
   ]);
 
+  const [nearbyHazards, setNearbyHazards] = useState<HazardItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [recentAlerts, setRecentAlerts] = useState<AlertItem[]>([]);
+
+  const loadHazards = async () => {
+    try {
+      const res = await fetchNearbyHazardsApi(userLocation.lat, userLocation.lon, true);
+      if (res.hazards) {
+        setNearbyHazards(res.hazards);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch nearby hazards on map:', e);
+    }
+  };
 
   const handleRefreshAlert = async () => {
     setLoading(true);
     const result = await triggerManualAlertApi('driver_1', 22.5726, 88.3639);
+    await loadHazards();
     setLoading(false);
 
     if (result.success && result.lat && result.lon) {
@@ -63,6 +77,7 @@ export default function MapScreen() {
 
   useEffect(() => {
     fetchHistory().then(setRecentAlerts);
+    loadHazards();
   }, []);
 
   return (
@@ -74,6 +89,7 @@ export default function MapScreen() {
           alertLocation={alertLocation}
           nearbyUsers={nearbyUsers}
           nearbyPolice={nearbyPolice}
+          nearbyHazards={nearbyHazards}
         />
       </View>
 
@@ -88,7 +104,7 @@ export default function MapScreen() {
           ) : (
             <>
               <Ionicons name="refresh" size={18} color="#ffffff" style={{ marginRight: 6 }} />
-              <Text style={styles.refreshText}>Fetch Live Drowsiness Alert</Text>
+              <Text style={styles.refreshText}>Sync Drowsiness & Hazards Map</Text>
             </>
           )}
         </TouchableOpacity>
@@ -112,6 +128,25 @@ export default function MapScreen() {
               Coordinates: ({alertLocation.lat.toFixed(4)}, {alertLocation.lon.toFixed(4)})
             </Text>
           </View>
+        )}
+
+        {/* Nearby Hazards list */}
+        <Text style={styles.sectionHeader}>⚠️ Road Hazards (Uber H3 Res 8)</Text>
+        {nearbyHazards.length === 0 ? (
+          <Text style={styles.emptyText}>No road hazards detected in nearby grid cells.</Text>
+        ) : (
+          nearbyHazards.map((h) => (
+            <View key={h.id} style={styles.hazardRow}>
+              <Ionicons name="warning" size={22} color="#f59e0b" />
+              <View style={styles.itemInfo}>
+                <Text style={styles.itemName}>{h.type.toUpperCase().replace('_', ' ')}</Text>
+                <Text style={styles.itemSub}>Stage {h.calculated_stage || 1} · Action: {h.frontend_action || 'FORCE_ALARM'}</Text>
+              </View>
+              <View style={styles.hazardBadge}>
+                <Text style={styles.hazardBadgeText}>{h.initial_severity || 'severe'}</Text>
+              </View>
+            </View>
+          ))
         )}
 
         {/* Nearby Users list */}
@@ -247,6 +282,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle: 'italic',
     marginBottom: 8,
+  },
+  hazardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0f172a',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#b45309',
+  },
+  hazardBadge: {
+    backgroundColor: '#78350f',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  hazardBadgeText: {
+    color: '#fef08a',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
   itemRow: {
     flexDirection: 'row',

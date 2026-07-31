@@ -1,13 +1,14 @@
 import React from 'react';
 import { StyleSheet, View, Text, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { UserItem, PoliceStationItem } from '../api/config';
+import { UserItem, PoliceStationItem, HazardItem } from '../api/config';
 
 interface OSMMapViewProps {
   userLocation: { lat: number; lon: number };
   alertLocation?: { lat: number; lon: number; driverId: string } | null;
   nearbyUsers?: UserItem[];
   nearbyPolice?: PoliceStationItem[];
+  nearbyHazards?: HazardItem[];
 }
 
 export const OSMMapView: React.FC<OSMMapViewProps> = ({
@@ -15,6 +16,7 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
   alertLocation,
   nearbyUsers = [],
   nearbyPolice = [],
+  nearbyHazards = [],
 }) => {
   const centerLat = alertLocation ? alertLocation.lat : userLocation.lat;
   const centerLon = alertLocation ? alertLocation.lon : userLocation.lon;
@@ -26,7 +28,7 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>OpenStreetMap Safety View</title>
+  <title>OpenStreetMap Safety & Hazard View</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
@@ -56,6 +58,9 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
       margin-top: 4px;
     }
     .badge-red { background-color: #ef4444; color: white; }
+    .badge-orange { background-color: #f97316; color: white; }
+    .badge-yellow { background-color: #eab308; color: black; }
+    .badge-purple { background-color: #a855f7; color: white; }
     .badge-blue { background-color: #3b82f6; color: white; }
     .badge-green { background-color: #10b981; color: white; }
   </style>
@@ -80,7 +85,7 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
       size = size || 24;
       return L.divIcon({
         className: 'custom-div-icon',
-        html: '<div style="background-color:' + color + ';width:' + size + 'px;height:' + size + 'px;border-radius:50%;border:3px solid #ffffff;box-shadow:0 0 10px ' + color + ';display:flex;align-items:center;justify-content:center;color:white;font-size:10px;font-weight:bold;">' + text + '</div>',
+        html: '<div style="background-color:' + color + ';width:' + size + 'px;height:' + size + 'px;border-radius:50%;border:2px solid #ffffff;box-shadow:0 0 10px ' + color + ';display:flex;align-items:center;justify-content:center;color:white;font-size:11px;font-weight:bold;">' + text + '</div>',
         iconSize: [size, size],
         iconAnchor: [size/2, size/2]
       });
@@ -102,7 +107,6 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
       
       alertMarker.bindPopup('<div class="custom-popup"><strong style="color:#ef4444;">🚨 DROWSY DRIVER DETECTED!</strong><br>Driver ID: ${alertLocation.driverId}<br><span class="badge badge-red">CRITICAL HAZARD</span></div>').openPopup();
 
-      // 300 Meter Danger Zone Circle
       var userDangerCircle = L.circle([${alertLocation.lat}, ${alertLocation.lon}], {
         color: '#ef4444',
         fillColor: '#f87171',
@@ -110,7 +114,6 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
         radius: 300
       }).addTo(map);
 
-      // 3000 Meter Police Net Circle
       var policeCircle = L.circle([${alertLocation.lat}, ${alertLocation.lon}], {
         color: '#3b82f6',
         fillColor: '#60a5fa',
@@ -122,7 +125,33 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
         : ''
     }
 
-    // 3. Nearby Users Pins
+    // 3. Road Hazards Markers (Potholes, Speed Breakers, Construction, Accidents, Blocked Roads, Danger Zones)
+    var hazardsData = ${JSON.stringify(nearbyHazards)};
+    hazardsData.forEach(function(h) {
+      if (h.latitude && h.longitude) {
+        var hColor = '#f59e0b';
+        var hIcon = '⚠️';
+        var hBadgeClass = 'badge-orange';
+
+        if (h.type === 'pothole') { hColor = '#f97316'; hIcon = '🕳️'; hBadgeClass = 'badge-orange'; }
+        else if (h.type === 'speed_breaker') { hColor = '#eab308'; hIcon = '⚠️'; hBadgeClass = 'badge-yellow'; }
+        else if (h.type === 'construction') { hColor = '#a855f7'; hIcon = '🚧'; hBadgeClass = 'badge-purple'; }
+        else if (h.type === 'accident') { hColor = '#ef4444'; hIcon = '💥'; hBadgeClass = 'badge-red'; }
+        else if (h.type === 'blocked_road') { hColor = '#64748b'; hIcon = '⛔'; hBadgeClass = 'badge-blue'; }
+        else if (h.type === 'danger_zone') { hColor = '#b91c1c'; hIcon = '☠️'; hBadgeClass = 'badge-red'; }
+
+        var hm = L.marker([h.latitude, h.longitude], {
+          icon: createIcon(hColor, hIcon, 26)
+        }).addTo(map);
+
+        var stageStr = 'Stage ' + (h.calculated_stage || 1);
+        var actionStr = h.frontend_action || 'FORCE_ALARM';
+
+        hm.bindPopup('<div class="custom-popup"><strong style="color:' + hColor + ';">' + hIcon + ' ' + h.type.toUpperCase().replace('_', ' ') + '</strong><br>Action: <b>' + actionStr + '</b><br><span class="badge ' + hBadgeClass + '">' + stageStr + '</span></div>');
+      }
+    });
+
+    // 4. Nearby Users Pins
     var usersData = ${JSON.stringify(nearbyUsers)};
     usersData.forEach(function(u) {
       if (u.lat && u.lon) {
@@ -134,7 +163,7 @@ export const OSMMapView: React.FC<OSMMapViewProps> = ({
       }
     });
 
-    // 4. Nearby Police Stations Pins
+    // 5. Nearby Police Stations Pins
     var policeData = ${JSON.stringify(nearbyPolice)};
     policeData.forEach(function(p) {
       if (p.lat && p.lon) {

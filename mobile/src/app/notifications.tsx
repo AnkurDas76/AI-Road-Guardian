@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   TouchableOpacity,
-  ScrollView,
   FlatList,
   TextInput,
   Alert,
@@ -17,14 +16,14 @@ interface NotificationLog {
   title: string;
   body: string;
   timestamp: string;
-  type: string;
+  type: 'USER_ALERT' | 'POLICE_ALERT' | 'HAZARD_ALERT';
 }
 
 export default function NotificationsScreen() {
   const [userId, setUserId] = useState('user_1');
   const [fcmToken, setFcmToken] = useState('sample_fcm_push_token_device_abc123');
   const [registered, setRegistered] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationLog[]>([
+  const [notifications] = useState<NotificationLog[]>([
     {
       id: '1',
       title: '🚨 DROWSY DRIVER ALERT',
@@ -34,9 +33,23 @@ export default function NotificationsScreen() {
     },
     {
       id: '2',
-      title: '🚨 POLICE DISPATCH - DROWSY DRIVER',
-      body: 'ALERT: Drowsy driver driver_1 detected at (22.5726, 88.3639), 112m from Lalbazar Central Police Station.',
+      title: '⚠️ ROAD HAZARD AHEAD: POTHOLE',
+      body: 'Stage 1 Severe Pothole reported 45m ahead on your trajectory.',
+      timestamp: new Date(Date.now() - 120000).toLocaleTimeString(),
+      type: 'HAZARD_ALERT',
+    },
+    {
+      id: '3',
+      title: '🚧 ROAD CONSTRUCTION REGISTERED',
+      body: 'Metro Rail Infra registered active construction zone near your travel grid.',
       timestamp: new Date(Date.now() - 300000).toLocaleTimeString(),
+      type: 'HAZARD_ALERT',
+    },
+    {
+      id: '4',
+      title: '🚓 POLICE DISPATCH - DROWSY DRIVER',
+      body: 'ALERT: Drowsy driver driver_1 detected at (22.5726, 88.3639), 112m from Lalbazar Central Police Station.',
+      timestamp: new Date(Date.now() - 600000).toLocaleTimeString(),
       type: 'POLICE_ALERT',
     },
   ]);
@@ -55,24 +68,46 @@ export default function NotificationsScreen() {
     }
   };
 
-  const renderNotification = ({ item }: { item: NotificationLog }) => (
-    <View
-      style={[
-        styles.notifCard,
-        item.type === 'USER_ALERT' ? styles.borderRed : styles.borderBlue,
-      ]}>
-      <View style={styles.notifHeader}>
-        <Ionicons
-          name={item.type === 'USER_ALERT' ? 'warning' : 'shield'}
-          size={20}
-          color={item.type === 'USER_ALERT' ? '#ef4444' : '#818cf8'}
-        />
-        <Text style={styles.notifTitle}>{item.title}</Text>
-        <Text style={styles.notifTime}>{item.timestamp}</Text>
+  const getBorderColor = (type: NotificationLog['type']) => {
+    switch (type) {
+      case 'USER_ALERT':
+        return styles.borderRed;
+      case 'HAZARD_ALERT':
+        return styles.borderOrange;
+      case 'POLICE_ALERT':
+        return styles.borderBlue;
+      default:
+        return styles.borderBlue;
+    }
+  };
+
+  const getIcon = (type: NotificationLog['type']) => {
+    switch (type) {
+      case 'USER_ALERT':
+        return { name: 'warning', color: '#ef4444' };
+      case 'HAZARD_ALERT':
+        return { name: 'alert-circle', color: '#f59e0b' };
+      case 'POLICE_ALERT':
+        return { name: 'shield', color: '#818cf8' };
+      default:
+        return { name: 'notifications', color: '#38bdf8' };
+    }
+  };
+
+  const renderNotification = ({ item }: { item: NotificationLog }) => {
+    const icon = getIcon(item.type);
+
+    return (
+      <View style={[styles.notifCard, getBorderColor(item.type)]}>
+        <View style={styles.notifHeader}>
+          <Ionicons name={icon.name as any} size={20} color={icon.color} />
+          <Text style={styles.notifTitle}>{item.title}</Text>
+          <Text style={styles.notifTime}>{item.timestamp}</Text>
+        </View>
+        <Text style={styles.notifBody}>{item.body}</Text>
       </View>
-      <Text style={styles.notifBody}>{item.body}</Text>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -80,7 +115,7 @@ export default function NotificationsScreen() {
       <View style={styles.tokenCard}>
         <Text style={styles.cardTitle}>Firebase Cloud Messaging (FCM)</Text>
         <Text style={styles.cardSub}>
-          Register device push token to receive background & foreground notifications when a drowsy driver is within 300m.
+          Register device push token to receive background & foreground notifications for Drowsiness Alerts and MotoSense Road Hazards.
         </Text>
 
         <Text style={styles.label}>User ID</Text>
@@ -210,6 +245,9 @@ const styles = StyleSheet.create({
   borderRed: {
     borderColor: '#ef4444',
   },
+  borderOrange: {
+    borderColor: '#f59e0b',
+  },
   borderBlue: {
     borderColor: '#6366f1',
   },
@@ -220,7 +258,7 @@ const styles = StyleSheet.create({
   },
   notifTitle: {
     color: '#f8fafc',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 'bold',
     marginLeft: 8,
     flex: 1,

@@ -40,6 +40,16 @@ export default function AppLayout() {
           }}
         />
         <Tabs.Screen
+          name="hazards"
+          options={{
+            title: 'Road Hazards',
+            headerTitle: 'MotoSense Road Hazards',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="warning-outline" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
           name="location"
           options={{
             title: 'Live GPS',
@@ -53,7 +63,7 @@ export default function AppLayout() {
           name="map"
           options={{
             title: 'OpenStreetMap',
-            headerTitle: 'Live Alert Map (OSM)',
+            headerTitle: 'Live Map & Hazards',
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="map" size={size} color={color} />
             ),
