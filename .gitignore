@@ -1,0 +1,44 @@
+# =========================
+# Python
+# =========================
+venv/
+**/venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# =========================
+# Databases
+# =========================
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# React Native / Expo
+# =========================
+node_modules/
+**/node_modules/
+.expo/
+.expo-shared/
+dist/
+build/
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Python cache
+# =========================
+.pytest_cache/
+.mypy_cache/
+backend/config/firebase-key.json
