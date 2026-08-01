@@ -1,9 +1,13 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { StatusBar } from 'react-native';
+import { StatusBar, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function AppLayout() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'android' ? Math.max(insets.bottom, 16) : insets.bottom;
+
   return (
     <>
       <StatusBar barStyle="light-content" backgroundColor="#0f172a" />
@@ -22,8 +26,8 @@ export default function AppLayout() {
           tabBarStyle: {
             backgroundColor: '#1e293b',
             borderTopColor: '#334155',
-            height: 60,
-            paddingBottom: 6,
+            height: 60 + bottomInset,
+            paddingBottom: 8 + bottomInset,
             paddingTop: 6,
           },
           tabBarActiveTintColor: '#38bdf8',
